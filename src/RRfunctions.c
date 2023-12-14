@@ -346,6 +346,7 @@ void ctransp(const int r, const int c, const MyType *src, MyType *dest)
       dest[i*c+j]=src[j*r+i]; // src is column-major
 }
 
+
 void ctransp2(const int r, const int k1, const int c, const MyType *src, MyType *dest)
 {
   int i, j, itmp;
@@ -355,161 +356,6 @@ void ctransp2(const int r, const int k1, const int c, const MyType *src, MyType 
     for(i=0;i<k1;i++)
       dest[i*c+j]=src[itmp+i]; // src is column-major
   }
-}
-
-
-int cDFT(const int K, const int K1, const int T, const int Threads, const int planType, const MyType *H, MyType *dft_cols)
-{
-    int i, lr;
-    MyType *H_soft=NULL, *H_t=NULL, *central=NULL, *r=NULL, *temp=NULL, norm;
-    lr=(int)floor(soft_window/2.0);
-
-    CHECKNULL(H_soft= (MyType *)calloc(K1*T,        sizeof(MyType)));
-    CHECKNULL(H_t=    (MyType *)calloc(K1*T,        sizeof(MyType)));
-    CHECKNULL(central=(MyType *)calloc(T,           sizeof(MyType)));
-    CHECKNULL(r=      (MyType *)calloc(lr,          sizeof(MyType)));
-    CHECKNULL(temp=   (MyType *)calloc(soft_window, sizeof(MyType)));
-    
-    for(i=0;i<lr;i++) { r[i]=2.0*i+1.0; } // with soft_window=5 lr is 2
-      
-    ctransp2(K, K1, T, H, H_t);
-
-    for(i=0;i<K1;i++)
-    {
-      cSmooth(i, K1, T, lr, soft_window, H_soft, H_t, central, r, temp);
-      
-      #ifdef SIMPLE
-        norm=cblas_snrm2(T, &H_soft[i*T], 1);
-        cblas_sscal(T, (1.0 / norm), &H_soft[i*T], 1);
-      #else
-        norm=cblas_dnrm2(T, &H_soft[i*T], 1);
-        cblas_dscal(T, (1.0 / norm), &H_soft[i*T], 1);
-      #endif
-    }
-
-    cFFTrows(K1, T, Threads, planType, H_soft, H_t);
-    cShiftFFT(K1, T, H_t);
-    ctransp(T, K1, H_t, dft_cols);
-
-    free(central); free(r); free(temp); free(H_soft); free(H_t);
-    return 0;
-}
-
-
-int cSmooth(const int i, const int K, const int T, const int lr, const int WSZ, MyType *H_soft, const MyType *H, MyType *central, const MyType *r, MyType *temp)
-{
-  MyType acc=0;
-  int h, j, pos, posH;
-
-  pos=T-WSZ+1;
-  posH=i*T;
-
-  for(j=0;j<pos;j++)
-  {
-    #ifdef SIMPLE
-      central[j]=cblas_sasum(WSZ, &H[posH+j], 1)/((1.0)*WSZ);
-    #else
-      central[j]=cblas_dasum(WSZ, &H[posH+j], 1)/((1.0)*WSZ);
-    #endif
-  }
-
-  memcpy(&H_soft[posH+(int)floor(WSZ/2.0)],central,pos*sizeof(MyType)); //central
-
-  // Start
-  for(j=0;j<WSZ-1;j++) { acc+=H[posH+j]; temp[j]=acc; }
-
-  // with soft_window=5 lr is 2
-  for(j=0;j<lr;j++) { temp[j]=temp[j*2]/r[j]; }
-
-  memcpy(&H_soft[posH],temp,(lr)*sizeof(MyType)); // end start
-  
-  // Stop
-  acc=0;
-  h=0;
-  for(j=T-1;j>=T-WSZ+1;j--) { acc+=H[posH+j]; temp[h++]=acc; }
-
-  for(j=1;j<lr;j++) { temp[j]=temp[j*2]/r[j]; }
-  for(j=0;j<lr;j++) { temp[WSZ-1-j]=temp[j];  }
-
-  memcpy(&H_soft[posH+T-lr],&temp[lr+1],(lr)*sizeof(MyType)); // end stop  
-
-  return 0;
-}
-
-
-int cFFTrows(const int K, const int T, const int Threads, const int planType, const MyType *H_soft, MyType *dft)
-{
-  int r, fftSize=T;
-
-  MyFFTcompl   *xFFT=NULL;
-  MyFFTCPUType *planFFT=NULL;
-
-  #ifdef SIMPLE
-    CHECKNULL(xFFT   =(MyFFTcompl   *)fftwf_malloc(sizeof(MyFFTcompl)  *K*fftSize));
-    CHECKNULL(planFFT=(MyFFTCPUType *)fftwf_malloc(sizeof(MyFFTCPUType)*K)); 
-  #else
-    CHECKNULL(xFFT   =(MyFFTcompl   *)fftw_malloc(sizeof(MyFFTcompl)  *K*fftSize));
-    CHECKNULL(planFFT=(MyFFTCPUType *)fftw_malloc(sizeof(MyFFTCPUType)*K)); 
-  #endif
-
-  for(r=0;r<K;r++)
-  {
-    #ifdef SIMPLE
-      planFFT[r]=fftwf_plan_dft_1d(fftSize, &xFFT[r*fftSize], &xFFT[r*fftSize], FFTW_FORWARD, planType);
-    #else
-      planFFT[r]= fftw_plan_dft_1d(fftSize, &xFFT[r*fftSize], &xFFT[r*fftSize], FFTW_FORWARD, planType);
-    #endif
-  }
-
-  #ifdef _OPENMP
-    #pragma omp parallel num_threads(Threads)
-  #endif
-  {
-    int pos, posFFT, i, j;
-
-    #ifdef _OPENMP
-      #pragma omp for
-    #endif
-    for(i=0; i<K; i++)
-    {
-      pos=i*T;
-      posFFT=i*fftSize;
-
-      for(j=0; j<T; j++) { xFFT[posFFT+j]=H_soft[pos+j]; }
-
-      memset(&xFFT[posFFT+T], 0, sizeof(MyFFTcompl)*(fftSize-T));
-
-      #ifdef SIMPLE
-        fftwf_execute(planFFT[i]);
-      #else
-         fftw_execute(planFFT[i]);
-      #endif
-
-      for(j=0; j<fftSize; j++)
-      {
-        #ifdef SIMPLE
-          dft[posFFT+j]=cabsf(xFFT[posFFT+j]);
-        #else
-          dft[posFFT+j]=cabs(xFFT[posFFT+j]);
-        #endif
-      }
-
-      #ifdef SIMPLE
-        fftwf_destroy_plan(planFFT[i]);
-      #else
-        fftw_destroy_plan(planFFT[i]);
-      #endif
-    }
-  }
-
-  #ifdef SIMPLE
-    fftwf_free(xFFT);
-    fftwf_free(planFFT);
-  #else
-    fftw_free(xFFT);
-    fftw_free(planFFT);
-  #endif
-  return 0;
 }
 
 
@@ -544,4 +390,137 @@ int cShiftFFT(const int K, const int T, MyType *dft_rows){
     
     free(temp); free(line);
     return 0;
+}
+
+
+int cSmooth(const int K, const int T, const int WSZ, MyType *H_soft, const MyType *H, MyType *temp)
+{
+  MyType dtmp;
+  int j, lr, step;
+
+  lr=WSZ/2; dtmp=0.0;
+
+  for(j=0;j<WSZ;j++)
+    dtmp += H[j];
+  H_soft[lr] = dtmp / WSZ;
+
+  step=lr+1;
+  for(j=WSZ;j<T;j++) {
+    dtmp += H[j] - H[j-WSZ];
+    H_soft[step++] = dtmp / WSZ;
+  }
+
+  // Start
+  dtmp=0.0;
+  for(j=0;j<WSZ-1;j++) { dtmp += H[j]; temp[j] = dtmp; }
+  for(j=0;j<lr;j++)    { H_soft[j] = temp[j*2] / (2*j+1); }
+
+  // Stop
+  dtmp=0.0; step=0;
+  for(j=T-1;j>=T-WSZ+1;j--) { dtmp += H[j]; temp[step++] = dtmp; }
+
+  // With soft_window=5 lr is 2
+  for(j=1;j<lr;j++) { temp[j] = temp[j*2] / (2*j+1); }
+  for(j=0;j<lr;j++) { H_soft[T-1-j] = temp[j];    }
+
+  return 0;
+}
+
+
+int cDFT(const int K, const int K1, const int T, const int Threads, const int planType, const MyType *H, MyType *dft_cols)
+{
+  int          r, fftSize=T;
+  MyType       *H_soft=NULL, *H_t=NULL, *temp=NULL;
+  MyFFTcompl   *xFFT=NULL;
+  MyFFTCPUType *planFFT=NULL;
+
+  #ifdef SIMPLE
+    CHECKNULL(xFFT   =(MyFFTcompl   *)fftwf_malloc(sizeof(MyFFTcompl)  *Threads*fftSize));
+    CHECKNULL(planFFT=(MyFFTCPUType *)fftwf_malloc(sizeof(MyFFTCPUType)*Threads)); 
+  #else
+    CHECKNULL(xFFT   =(MyFFTcompl   *) fftw_malloc(sizeof(MyFFTcompl)  *Threads*fftSize));
+    CHECKNULL(planFFT=(MyFFTCPUType *) fftw_malloc(sizeof(MyFFTCPUType)*Threads)); 
+  #endif
+  for(r=0;r<Threads;r++)
+  {
+    #ifdef SIMPLE
+      planFFT[r]=fftwf_plan_dft_1d(T, &xFFT[r*fftSize], &xFFT[r*fftSize], FFTW_FORWARD, planType);
+    #else
+      planFFT[r]= fftw_plan_dft_1d(T, &xFFT[r*fftSize], &xFFT[r*fftSize], FFTW_FORWARD, planType);
+    #endif
+  }
+  CHECKNULL(H_soft= (MyType *)calloc(K1*T,                sizeof(MyType)));
+  CHECKNULL(H_t=    (MyType *)calloc(K1*T,                sizeof(MyType)));
+  CHECKNULL(temp=   (MyType *)calloc(soft_window*Threads, sizeof(MyType)));
+    
+  ctransp2(K, K1, T, H, H_t);
+
+  #ifdef _OPENMP
+    #pragma omp parallel num_threads(Threads)
+  #endif
+  {
+    int    myID, posFFT, posH, i, j;
+    MyType norm;
+
+    #ifdef _OPENMP
+      myID=omp_get_thread_num();
+    #else
+      myID=0;
+    #endif
+    posFFT = myID*fftSize;
+
+    #ifdef _OPENMP
+      #pragma omp for
+    #endif
+    for(i=0;i<K1;i++)
+    {
+      posH = i*T;
+      cSmooth(K1, T, soft_window, &H_soft[posH], &H_t[posH], &temp[myID*soft_window]);
+      #ifdef SIMPLE
+        norm=cblas_snrm2(T, &H_soft[posH], 1);
+        cblas_sscal(T, (1.0 / norm), &H_soft[posH], 1);
+      #else
+        norm=cblas_dnrm2(T, &H_soft[posH], 1);
+        cblas_dscal(T, (1.0 / norm), &H_soft[posH], 1);
+      #endif
+
+      for(j=0; j<T; j++) { xFFT[posFFT+j]=H_soft[posH+j]; }
+      
+      #ifdef SIMPLE
+        fftwf_execute(planFFT[myID]);
+      #else
+         fftw_execute(planFFT[myID]);
+      #endif
+
+      for(j=0; j<T; j++)
+      {
+        #ifdef SIMPLE
+          H_t[posH+j]=cabsf(xFFT[posFFT+j]);
+        #else
+          H_t[posH+j]= cabs(xFFT[posFFT+j]);
+        #endif
+      }
+    }
+  }
+  cShiftFFT(K1, T, H_t);
+  ctransp(T, K1, H_t, dft_cols);
+
+  for(r=0;r<Threads;r++) 
+  {
+    #ifdef SIMPLE
+      fftwf_destroy_plan(planFFT[r]);
+    #else
+      fftw_destroy_plan(planFFT[r]);
+    #endif
+  }
+  #ifdef SIMPLE
+    fftwf_free(xFFT);
+    fftwf_free(planFFT);
+  #else
+    fftw_free(xFFT);
+    fftw_free(planFFT);
+  #endif
+  free(temp); free(H_soft); free(H_t);
+
+  return OK;
 }

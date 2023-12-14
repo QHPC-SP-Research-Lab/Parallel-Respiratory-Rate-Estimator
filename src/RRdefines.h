@@ -69,8 +69,7 @@ void  cUpdateL(const int, const int, const MyType, const MyType*, const MyType*,
 void   ctransp(const int, const int, const MyType*, MyType*);
 void   ctransp2(const int, const int, const int, const MyType*, MyType*);
 double  Ctimer(void);
-int    cSmooth(const int, const int, const int, const int, const int, MyType*, const MyType*, MyType*, const MyType*, MyType*);
-int   cFFTrows(const int, const int, const int, const int, const MyType*, MyType*);
+int    cSmooth(const int, const int, const int, MyType*, const MyType*, MyType*);
 int  cShiftFFT(const int, const int, MyType*); 
 
 #endif
