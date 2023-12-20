@@ -347,18 +347,6 @@ void ctransp(const int r, const int c, const MyType *src, MyType *dest)
 }
 
 
-void ctransp2(const int r, const int k1, const int c, const MyType *src, MyType *dest)
-{
-  int i, j, itmp;
-  for(j=0;j<c;j++)
-  {
-    itmp=j*r;
-    for(i=0;i<k1;i++)
-      dest[i*c+j]=src[itmp+i]; // src is column-major
-  }
-}
-
-
 int cShiftFFT(const int K, const int T, MyType *dft_rows){
     int i, T2,K2, extra=0;
     T2=(int)floor(T/2.0);
@@ -393,7 +381,7 @@ int cShiftFFT(const int K, const int T, MyType *dft_rows){
 }
 
 
-int cSmooth(const int K, const int T, const int WSZ, MyType *H_soft, const MyType *H, MyType *temp)
+int cSmooth(const int col, const int T, const int K, const int WSZ, MyType *H_soft, const MyType *H, MyType *temp)
 {
   MyType dtmp;
   int j, lr, step;
@@ -401,23 +389,23 @@ int cSmooth(const int K, const int T, const int WSZ, MyType *H_soft, const MyTyp
   lr=WSZ/2; dtmp=0.0;
 
   for(j=0;j<WSZ;j++)
-    dtmp += H[j];
+    dtmp += H[K*j+col];
   H_soft[lr] = dtmp / WSZ;
 
   step=lr+1;
   for(j=WSZ;j<T;j++) {
-    dtmp += H[j] - H[j-WSZ];
+    dtmp += H[K*j+col] - H[K*(j-WSZ)+col];
     H_soft[step++] = dtmp / WSZ;
   }
 
   // Start
   dtmp=0.0;
-  for(j=0;j<WSZ-1;j++) { dtmp += H[j]; temp[j] = dtmp; }
+  for(j=0;j<WSZ-1;j++) { dtmp += H[K*j+col]; temp[j] = dtmp; }
   for(j=0;j<lr;j++)    { H_soft[j] = temp[j*2] / (2*j+1); }
 
   // Stop
   dtmp=0.0; step=0;
-  for(j=T-1;j>=T-WSZ+1;j--) { dtmp += H[j]; temp[step++] = dtmp; }
+  for(j=T-1;j>=T-WSZ+1;j--) { dtmp += H[K*j+col]; temp[step++] = dtmp; }
 
   // With soft_window=5 lr is 2
   for(j=1;j<lr;j++) { temp[j] = temp[j*2] / (2*j+1); }
@@ -430,7 +418,7 @@ int cSmooth(const int K, const int T, const int WSZ, MyType *H_soft, const MyTyp
 int cDFT(const int K, const int K1, const int T, const int Threads, const int planType, const MyType *H, MyType *dft_cols)
 {
   int          r, fftSize=T;
-  MyType       *H_soft=NULL, *H_t=NULL, *temp=NULL;
+  MyType       *H_soft=NULL, *temp=NULL;
   MyFFTcompl   *xFFT=NULL;
   MyFFTCPUType *planFFT=NULL;
 
@@ -449,12 +437,9 @@ int cDFT(const int K, const int K1, const int T, const int Threads, const int pl
       planFFT[r]= fftw_plan_dft_1d(T, &xFFT[r*fftSize], &xFFT[r*fftSize], FFTW_FORWARD, planType);
     #endif
   }
-  CHECKNULL(H_soft= (MyType *)calloc(K1*T,                sizeof(MyType)));
-  CHECKNULL(H_t=    (MyType *)calloc(K1*T,                sizeof(MyType)));
-  CHECKNULL(temp=   (MyType *)calloc(soft_window*Threads, sizeof(MyType)));
+  CHECKNULL(H_soft=(MyType *)calloc(K1*T,                sizeof(MyType)));
+  CHECKNULL(temp=  (MyType *)calloc(soft_window*Threads, sizeof(MyType)));
     
-  ctransp2(K, K1, T, H, H_t);
-
   #ifdef _OPENMP
     #pragma omp parallel num_threads(Threads)
   #endif
@@ -475,7 +460,7 @@ int cDFT(const int K, const int K1, const int T, const int Threads, const int pl
     for(i=0;i<K1;i++)
     {
       posH = i*T;
-      cSmooth(K1, T, soft_window, &H_soft[posH], &H_t[posH], &temp[myID*soft_window]);
+      cSmooth(i, T, K, soft_window, &H_soft[posH], H, &temp[myID*soft_window]);
       #ifdef SIMPLE
         norm=cblas_snrm2(T, &H_soft[posH], 1);
         cblas_sscal(T, (1.0 / norm), &H_soft[posH], 1);
@@ -495,15 +480,15 @@ int cDFT(const int K, const int K1, const int T, const int Threads, const int pl
       for(j=0; j<T; j++)
       {
         #ifdef SIMPLE
-          H_t[posH+j]=cabsf(xFFT[posFFT+j]);
+          H_soft[posH+j]=cabsf(xFFT[posFFT+j]);
         #else
-          H_t[posH+j]= cabs(xFFT[posFFT+j]);
+          H_soft[posH+j]= cabs(xFFT[posFFT+j]);
         #endif
       }
     }
   }
-  cShiftFFT(K1, T, H_t);
-  ctransp(T, K1, H_t, dft_cols);
+  cShiftFFT(K1, T, H_soft);
+  ctransp(T, K1, H_soft, dft_cols);
 
   for(r=0;r<Threads;r++) 
   {
@@ -520,7 +505,7 @@ int cDFT(const int K, const int K1, const int T, const int Threads, const int pl
     fftw_free(xFFT);
     fftw_free(planFFT);
   #endif
-  free(temp); free(H_soft); free(H_t);
+  free(temp); free(H_soft);
 
   return OK;
 }

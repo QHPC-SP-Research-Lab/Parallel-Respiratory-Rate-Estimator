@@ -12,9 +12,6 @@ from RRprototypes import *
 
 eps = np.finfo(np.double).eps
 
-def nextpow2(x):
-    return 1 if x == 0 else (x - 1).bit_length()
-
 def RR_estimator(dft_arr, K, fsh):
     step = fsh/(len(dft_arr[1,:])-1)
     f    = np.arange(-1*fsh/2,fsh/2+step, step,dtype=np.double)
@@ -83,7 +80,7 @@ def process(file_name, arg2):
    Hop_samples = int(np.round(S*N))
    noverlap_   = N-Hop_samples
    NFrames     = int(np.floor((L-N+(N*S))/Hop_samples))
-   nfft_       = 2**nextpow2(N*2)
+   nfft_       = 2*N
    nIter       = int(arg2)
    GAMMA       = 1.0
    Fmin        = 300
