@@ -48,9 +48,9 @@ To run the project, execute the compiled binary along with the Python script. Fo
 
 2. Run the following commands:
 
-	``python RRmain.py filename.wav number_iterations``
+	``python RRmain.py path/ number_iterations``
 
-Replace **``filename.wav``** with the path to your input audio file and **``number_iterations``** with the desired number of iterations for the algorithm.
+Replace **``path/``** with the path to your input audio file and **``number_iterations``** with the desired number of iterations for the algorithm.
 
 Ensure that the input audio files are in monochannel format and use a 16-bit per sample resolution for compatibility with the project.
 
