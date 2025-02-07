@@ -236,9 +236,9 @@ int cONMF(const int F, const int T, const int K, const int K1, const MyType gamm
 
   // W needs auxiliary spaces of size (F, K2) and (K2, K2)
   // H needs auxiliary spaces of size (K, T)  and (K, K)
-  // (K > K2) and (T > K) so we use (K, T) and (K, K) for all
-  CHECKNULL(Num =(MyType *)calloc(K*T, sizeof(MyType)));
-  CHECKNULL(Den =(MyType *)calloc(K*T, sizeof(MyType)));
+  // (K > K2) so we use (K, max(T,F)) and (K, K) for all
+  CHECKNULL(Num =(MyType *)calloc(K*max(F,T), sizeof(MyType)));
+  CHECKNULL(Den =(MyType *)calloc(K*max(F,T), sizeof(MyType)));
   CHECKNULL(tmp =(MyType *)calloc(K*K, sizeof(MyType)));
 
   CHECKNULL(Klam =(MyType *)calloc(K2, sizeof(MyType)));
@@ -268,7 +268,6 @@ int cONMF(const int F, const int T, const int K, const int K1, const MyType gamm
     #endif
     cUpdateL(F, K2, lamda, Num, Den, Flam, &W[K1*F]);
 
-
     #ifdef SIMPLE
       cblas_sgemm(CblasColMajor, CblasTrans,   CblasNoTrans, K, T, F, 1.0, W,   F, X, F, 0.0, Num, K);
       cblas_sgemm(CblasColMajor, CblasTrans,   CblasNoTrans, K, K, F, 1.0, W,   F, W, F, 0.0, tmp, K);
@@ -280,12 +279,12 @@ int cONMF(const int F, const int T, const int K, const int K1, const MyType gamm
     #endif
     cUpdate(K*T, Num, Den, H);
   }
-  free(Num); free(Den); free(tmp);
+  free(Num); free(Den); free(tmp); free(Klam); free(Flam);
   return 0;
 }
 
 
-void ONMF(const MyType *audio, int sr, MyType S, int winSize, int Overlap, int nFrames, int rowsNMF, int fftSize,
+int ONMF(const MyType *audio, int sr, MyType S, int winSize, int Overlap, int nFrames, int rowsNMF, int fftSize,
           int bases, int freq, int nIter, MyType gamma, int Fmin, int Fmax, int K1, MyType *W, MyType *H, MyType *DFT,
           double *Tiempos, bool debug)
 {
@@ -302,13 +301,13 @@ void ONMF(const MyType *audio, int sr, MyType S, int winSize, int Overlap, int n
   globaltime=Ctimer();
 
   if (debug) {
-    printf("winSize %d, Overlap %d, nFrames %d, rowsNMF %d, fftSize %d", winSize, Overlap, nFrames, rowsNMF, fftSize);
-    printf(", Threads %d, Bases %d, nIter %d, gamma %f\n", Threads, bases, nIter, gamma);
+    printf("sr=%d, S=%1.2f, winSize=%d, Overlap=%d, nFrames=%d, rowsNMF=%d, fftSize=%d bases=%d, sr=%d, nIter=%d, gamma=%f fmin=%d, fmax=%d, K1=%d, Threads=%d\n", 
+            sr, S, winSize, Overlap, nFrames, rowsNMF, fftSize, bases, sr, nIter, gamma, Fmin, Fmax, K1, Threads);
   }
   
   /* Internal structures */
-  rSNMF    = (MyType *)malloc(rowsNMF*nFrames*sizeof(MyType));
-  vHamming = (MyType *)malloc(        winSize*sizeof(MyType));
+  CHECKNULL(rSNMF    = (MyType *)malloc(rowsNMF*nFrames*sizeof(MyType)));
+  CHECKNULL(vHamming = (MyType *)malloc(        winSize*sizeof(MyType)));
 
   /* Start !!! */
   cHamming(winSize, vHamming);
@@ -335,6 +334,8 @@ void ONMF(const MyType *audio, int sr, MyType S, int winSize, int Overlap, int n
   free(rSNMF); free(vHamming);
 
   Tiempos[5]=Ctimer()-globaltime;
+  
+  return 0;
 }
 
 
@@ -357,7 +358,7 @@ int cShiftFFT(const int K, const int T, MyType *dft_rows){
     CHECKNULL(temp=(MyType *)malloc((T2+extra) * sizeof(MyType)));
     CHECKNULL(line=(MyType *)malloc((T) * sizeof(MyType)));
 
-     if (K % 2==1) memcpy(line, &dft_rows[(K2)*T], T*sizeof(MyType));
+    if (K % 2==1) memcpy(line, &dft_rows[(K2)*T], T*sizeof(MyType));
     
     for(i=0;i<K2;i++)
     {

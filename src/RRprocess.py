@@ -1,16 +1,47 @@
-import wave
+import os
 import time
 import numpy as np
 
-from numpy  import linalg    as LA
-from numpy  import transpose as tp
-from scipy  import linalg    as sLA
-from random import random
-from time   import time
-
+from scipy.io     import wavfile   as wav
+from numpy        import linalg    as LA
+from numpy        import transpose as tp
+from scipy        import linalg    as sLA
+from random       import random
+from time         import time
 from RRprototypes import *
 
 eps = np.finfo(np.double).eps
+
+def NombresFicheros(ruta=os.getcwd()):
+  contenido = os.listdir(ruta)
+  ficheros  = []
+  for fichero in contenido:
+    if os.path.isfile(os.path.join(ruta, fichero)) and fichero.endswith('.wav'):
+        ficheros.append(fichero)
+  return ficheros
+
+def NormalizaAudio(data):
+    """
+    Normaliza el audio según su formato de datos. Devuelve el audio normalizado en float64 (-1 a 1).
+    """
+    dtype = data.dtype
+    if dtype == np.int16:
+        normalized_data = data.astype(np.float64) / 32768.0
+    elif dtype == np.int32:
+        normalized_data = data.astype(np.float64) / 2147483648.0
+    elif dtype == np.uint8:
+        normalized_data = (data.astype(np.float64) - 128) / 128.0
+    elif dtype == np.float32: 
+        normalized_data = data.astype(np.float64)
+    elif dtype == np.float64:
+        normalized_data = data
+    else:
+        raise ValueError(f"Formato de audio no soportado: {dtype}")
+
+    #print(f"Tipo de dato original: {data.dtype}")
+    #print(f"Numero de muestras {data.shape[0]}")
+    #print(f"Rango de valores normalizados: [{normalized_data.min()}, {normalized_data.max()}]")
+    return normalized_data
 
 def RR_estimator(dft_arr, K, fsh):
     step = fsh/(len(dft_arr[1,:])-1)
@@ -64,11 +95,15 @@ def RR_estimator(dft_arr, K, fsh):
 
 def process(file_name, arg2):
    # Read signal (monophonic channel at 16 bits per sample)
-   iDfile  = wave.open(file_name)
-   buffer  = np.frombuffer(iDfile.readframes(iDfile.getnframes()), dtype=np.int16)
-   signalX = buffer.astype(np.double) / 32768.0
-   sr      = iDfile.getframerate()
-   iDfile.close()
+   #iDfile  = wave.open(file_name, mode='rb')
+   #buffer  = np.frombuffer(iDfile.readframes(iDfile.getnframes()), dtype=np.int16)
+   #signalX = buffer.astype(np.double) / 32768.0
+   #sr      = iDfile.getframerate()
+   #iDfile.close()
+
+   sr, buffer = wav.read(file_name)
+   signalX    = NormalizaAudio(buffer)
+   seconds    = buffer.shape[0] / sr
 
    L           = signalX.size
    B           = 1     # Normalization factor
@@ -88,8 +123,6 @@ def process(file_name, arg2):
    lam         = 0.1
    np.random.seed(seed=(4095 % 2120))
    
-   #print("File "+ file_name)
-
    # You should initialize the first K1 rows with their pre-trained bases, and the rest of the rows randomly. 
    # This wrapper initializes the entire matrix randomly.
    # This is not the correct way to obtain an accurate estimation of the RR.
@@ -102,8 +135,10 @@ def process(file_name, arg2):
    iDFT = np.zeros((K1, NFrames), dtype=np.double, order='F')
    Time = np.zeros(6)
 
-   ONMF(signalX, sr, S, N, noverlap_, NFrames, rowsNMF, nfft_, bases, sr, nIter, GAMMA, Fmin, Fmax, K1, W, H, iDFT, Time, 0)
-   RR=RR_estimator(iDFT, K1, 1.0/(N*S/sr))
+   error = ONMF(signalX, sr, S, N, noverlap_, NFrames, rowsNMF, nfft_, bases, sr, nIter, GAMMA, Fmin, Fmax, K1, W, H, iDFT, Time, 0)
+   if error:
+      RR = -100
+   else:
+      RR = RR_estimator(iDFT, K1, 1.0/(N*S/sr))
 
-   #print(f"{Time[0]:1.5E}  {Time[1]:1.5E}  {Time[2]:1.5E} {Time[3]:1.5E} {Time[4]:1.5E} {Time[5]:1.5E}")
    return int(RR)

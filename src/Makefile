@@ -1,13 +1,13 @@
 CC    := gcc
-FLAGS := -Wall -O3 -fPIC -shared -fopenmp
-
-# For OpenBLAS
-INCS  := -I./ -I/opt/fftw/include -I/opt/openblas/include
-LIBS  := -L/opt/openblas/lib -lopenblas -L/opt/fftw/lib -lfftw3_omp -lfftw3
+FLAGS := -Wall -O3 -fPIC -shared -fopenmp -lm
 
 # For BLIS
 INCS  := -I./ -I/opt/fftw/include -I/opt/blis/include
 LIBS  := -L/opt/blis/lib -lblis -L/opt/fftw/lib -lfftw3_omp -lfftw3
+
+# For OpenBLAS
+INCS  := -I./ -I/opt/fftw/include -I/opt/openblas/include
+LIBS  := -L/opt/openblas/lib -lopenblas -L/opt/fftw/lib -lfftw3_omp -lfftw3
 
 all: cleanall RRmain.so
 
